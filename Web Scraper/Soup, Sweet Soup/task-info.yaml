@@ -1,0 +1,219 @@
+type: edu
+files:
+- name: scraper.py
+  visible: true
+  learner_created: false
+- name: tests.py
+  visible: false
+  text: |
+    import glob
+    import os
+    import random
+    import re
+    import shutil
+    import string
+
+    import requests
+    from bs4 import BeautifulSoup
+    from furl import furl
+    from hstest import *
+
+
+    class NatureScraper:
+        def tag_leading_to_view_article(self, tag):
+            return tag.has_attr("data-track-action") and tag["data-track-action"] == "view article"
+
+        def tag_containing_atricle_type(self, tag):
+            return tag.name == "span" and tag.has_attr("data-test") and tag["data-test"] == "article.type"
+
+        def tag_containing_article_title(self, tag):
+            return tag.name == "h1" and ("article" in tag["class"][0] and "title" in tag["class"][0])
+
+        def tag_containing_article_body(self, tag):
+            return tag.name == "div" and ("article" in tag.get("class", [""])[0] and "body" in tag.get("class", [""])[0])
+
+        def get_article_links_of_type(self, url, article_type="News"):
+            origin_url = furl(url).origin
+            try:
+                articles_resp = requests.get(url)
+            except Exception:
+                raise WrongAnswer(f"ConnectionError occurred when tests tried to reach the page \'{url}\'.\n"
+                                  f"Please try running tests again.")
+            soup = BeautifulSoup(articles_resp.text, "html.parser")
+            articles = soup.find_all(self.tag_containing_atricle_type)
+            articles = list(filter(lambda x: x.text.strip() == article_type, articles))
+            return [
+                furl(origin_url).add(path=x.find_parent("article").find(self.tag_leading_to_view_article).get("href")).url \
+                for x in articles]
+
+        def get_article_title_and_content(self, url):
+            try:
+                article = requests.get(url)
+            except Exception:
+                return CheckResult.wrong("An error occurred when tests tried to connect to the Internet page.\n"
+                                         "Please, try again.")
+            soup = BeautifulSoup(article.text, "html.parser")
+            title = soup.find(self.tag_containing_article_title)
+            content = soup.find(self.tag_containing_article_body)
+            if title and content:
+                return title.text.strip(), content.text.strip()
+
+
+    class WebScraperTest(StageTest):
+        def generate(self):
+            for name in os.listdir():
+                if os.path.isdir(name) and name.startswith("Page_"):
+                    shutil.rmtree(name)
+
+            return [TestCase(stdin="3\nResearch Highlight", attach=(3, "Research Highlight"), time_limit=0),
+                    TestCase(stdin="1\nNews & Views", attach=(1, "News & Views"), time_limit=0),
+                    TestCase(stdin="2\nNews Feature", attach=(2, "News Feature"), time_limit=0)]
+
+        def check(self, reply, attach=None):
+            n_pages, article_type = attach
+            scraper = NatureScraper()
+            for i in range(1, n_pages + 1):
+                dirname = f"Page_{i}"
+                dirname = os.path.abspath(dirname)
+                if not os.path.exists(dirname):
+                    return CheckResult.wrong(f"Impossible to find directory {dirname}")
+                os.chdir(dirname)
+                txt_files = glob.glob("*.txt")
+                url = furl("https://www.nature.com/nature/articles").add({"page": str(i)})
+                article_links = scraper.get_article_links_of_type(url, article_type=article_type)
+                if len(txt_files) != len(article_links):
+                    return CheckResult.wrong("A wrong number of files with articles was found in the directory {0}. \n"
+                                             "{1} files were found, {2} files were expected.".format(dirname,
+                                                                                                     len(txt_files),
+                                                                                                     len(article_links)))
+                if article_links:
+                    random_val = random.randint(0, len(article_links) - 1)
+                    title, content = scraper.get_article_title_and_content(article_links[random_val])
+                    content = content.strip()
+                    title = f"{title.translate(str.maketrans('', '', string.punctuation)).replace(' ', '_')}.txt"
+                    title = os.path.abspath(title)
+                    if not os.path.exists(title):
+                        return CheckResult.wrong("A file with the title {0} was expected, but was not found.".format(title))
+                    with open(title, "rb") as f:
+                        try:
+                            file_content = f.read().decode('utf-8').strip()
+                        except UnicodeDecodeError:
+                            return CheckResult.wrong("An error occurred when tests tried to read the file \"{0}\"\n"
+                                                     "Please, make sure you save your file in binary format \n"
+                                                     "and encode the saved data using utf-8 encoding.".format(title))
+
+                    file_content = re.sub('[\r\n]', '', file_content)
+                    content = re.sub('[\r\n]', '', content)
+                    if file_content != content:
+                        return CheckResult.wrong("Some of the files do not contain the expected article's body. \n"
+                                                 "The tests expected the following article:\n"
+                                                 f"\"{content}\"\n"
+                                                 f"However, the following text was found in the file {title}:\n"
+                                                 f"\"{file_content}\"")
+                os.chdir("..")
+                try:
+                    shutil.rmtree(dirname)
+                except OSError as e:
+                    print(f"The following error occurred when the tests tried to remove directory {dirname}:\n"
+                          f"{e}\n"
+                          f"If you can, please, make it possible to remove the directory.")
+            return CheckResult.correct()
+
+
+    if __name__ == '__main__':
+        WebScraperTest().run_tests()
+  learner_created: false
+- name: source.html
+  visible: true
+  learner_created: true
+- name: COVID_vaccines_have_higher_approval_in_less_affluent_countries.txt
+  visible: true
+  text: "Vaccines for COVID-19 are administered in Rwanda, where survey results show\
+    \ high acceptance of the jab.Credit: Habimana Thierry/Anadolu Agency/Getty\n\n\
+    \nPeople in low- and middle-income countries tend to be much more willing to receive\
+    \ a COVID-19 vaccine than are those in the United States, according to an analysis\
+    \ that included poll results from a dozen countries.The analysis1, reported on\
+    \ 16 July in Nature Medicine, found that 80% of individuals surveyed in ten low-\
+    \ and middle- income countries (LMICs) in Asia, Africa and South America were\
+    \ willing to receive a COVID-19 vaccine, compared with 65% in the United States.\
+    \ Upper-middle-income Russia is an outlier: only 30% of people there were willing\
+    \ to have the jab.The study authors say the results suggest that ensuring equitable\
+    \ access to COVID-19 vaccines worldwide is not only a moral imperative, but also\
+    \ a powerful way to stem the spread of the virus: lower levels of hesitancy make\
+    \ widespread vaccination easier.\n \n\n\n\n\n\n\nSource: Ref. 1\n\n\n“Beyond the\
+    \ equity concerns, sharing vaccines is also the most efficient thing to do,” says\
+    \ Ahmed Mushfiq Mobarak, an economist at Yale University in New Haven, Connecticut,\
+    \ and a co-author of the study. “You want to give vaccines to people who are eager\
+    \ to take them.”Trustworthy sourcesTo understand vaccine hesitancy, Mobarak and\
+    \ his co-authors surveyed people in 11 LMICs, including Russia, and the United\
+    \ States between June 2020 and January 2021. The team asked respondents whether\
+    \ they would be vaccinated once COVID-19 jabs became available in their country,\
+    \ and the reasons for their decision.\n \nThe race to curb the spread of COVID\
+    \ vaccine disinformation\nNearly half of respondents in LMICs identified community-health\
+    \ workers as the most trustworthy source to help them decide whether to take the\
+    \ vaccine, the study found. This result shows that such workers and other community\
+    \ leaders are central to successful vaccination campaigns, says Marina Joubert,\
+    \ a science-communication researcher at Stellenbosch University in South Africa\
+    \ who was not involved in the work.Worries about vaccine side effects and efficacy\
+    \ were the top reasons people would refuse a COVID-19 vaccine, the analysis found.\
+    \ “They’re not deeply hesitant based on some kind of conspiracy theory,” says\
+    \ Mobarak.Heidi Larson, an anthropologist at the London School of Hygiene and\
+    \ Tropical Medicine, who heads the school’s Vaccine Confidence Project, praises\
+    \ the work for pulling together data from multiple countries. But she worries\
+    \ that the results are over-generalized. The countries — and the communities within\
+    \ them — vary considerably in willingness to receive the vaccine, notes Larson,\
+    \ who has studied perceptions around vaccines in 15 African countries.Few people\
+    \ had received the COVID-19 vaccine when the researchers surveyed individuals,\
+    \ which means that perceptions have probably changed since the survey, says Larson.\
+    \ The news about safety concerns over the AstraZeneca vaccine, for example, had\
+    \ immediate knock-on effects on vaccine perceptions in Nigeria, she says.Still,\
+    \ Joubert says, the study presents compelling evidence that vaccines must be made\
+    \ available to LMICs immediately. She says the results should be used to “create\
+    \ a moral appeal to countries that are hoarding vaccines to make them available\
+    \ to the countries that need them, not only for the benefit of those countries,\
+    \ but also for global benefit”."
+  learner_created: true
+- name: DeepMinds_AI_predicts_structures_for_a_vast_trove_of_proteins.txt
+  visible: true
+  text: |-
+    The human mediator complex has long been one of the most challenging multi-protein systems for structural biologists to understand.Credit: Yuan He
+
+
+    The human genome holds the instructions for more than 20,000 proteins. But only about one-third of those have had their 3D structures determined experimentally. And in many cases, those structures are only partially known.Now, a transformative artificial intelligence (AI) tool called AlphaFold, which has been developed by Google’s sister company DeepMind in London, has predicted the structure of nearly the entire human proteome (the full complement of proteins expressed by an organism). In addition, the tool has predicted almost complete proteomes for various other organisms, ranging from mice and maize (corn) to the malaria parasite (see ‘Folding options’).The more than 350,000 protein structures, which are available through a public database, vary in their accuracy. But researchers say the resource — which is set to grow to 130 million structures by the end of the year — has the potential to revolutionize the life sciences.
+
+
+
+
+
+
+    Source: EMBL–EBI and https://swissmodel.expasy.org/repository
+
+
+    “It’s totally transformative from my perspective. Having the shapes of all these proteins really gives you insight into their mechanisms,” says Christine Orengo, a computational biologist at University College London (UCL).“This is the biggest contribution an AI system has made so far to advancing scientific knowledge. I don’t think it’s a stretch to say that,” says Demis Hassabis, co-founder and chief executive of DeepMind.But researchers emphasize that the data dump is a beginning, not an end. They will want to validate the predictions and, more importantly, apply them to experiments that were hitherto impossible. “It’s an amazing first step, that we have all this data on that scale,” says David Jones, a UCL computational biologist who advised DeepMind on an earlier iteration of AlphaFold.Prizewinning predictionsDeepMind stunned the life-sciences community last year, when an updated version of AlphaFold swept a biennial protein-prediction exercise called CASP (Critical Assessment of Protein Structure Prediction). In this long-running competition, which has traditionally been the domain of academics, researchers predict the structures of proteins whose structures have been experimentally solved, but not yet made public.Some of AlphaFold’s predictions were on par with very good experimental models, and some scientists said the network’s influence would be epochal. Last week, DeepMind released the source code behind the latest version of AlphaFold, and a detailed description of how it was developed1 (academic teams have already begun using these resources to make useful predictions). In the process of preparing AlphaFold’s code for public release, DeepMind refined it to make the code run more efficiently. Some of the CASP predictions took days, but the updated version of AlphaFold could now compute them in minutes to hours.With this added efficiency, the DeepMind team set out to predict the structures of nearly every known protein encoded by the human genome, as well as those of 20 model organisms. The structures are available in a database maintained by EMBL-EBI (the European Molecular Biology Laboratory European Bioinformatics Institute) in Hinxton, UK.In addition to the predicted structures, which cover 98.5% of known human proteins and a similar percentage for other organisms, AlphaFold generated a measurement of the confidence of its predictions. “We want to give experimentalists and biologists a really clear signal of which parts of the predictions they should rely on,” says Kathryn Tunyasuvunakool, a science engineer at DeepMind and first author of a Nature paper describing the human proteome predictions2. For the human proteome, 58% of its predictions for the locations of individual amino acids were good enough to be confident in the shape of the protein’s folds, Tunyasuvunakool says. A subset of those predictions — 36% of the total — are potentially precise enough to detail atomic features useful for drug design, such as the active site of an enzyme.Even the less-accurate predictions might offer insights. Biologists think that a large proportion of human proteins and those of other eukaryotes — organisms with cells that have nuclei — contain regions that are are inherently disordered and take on a defined structure only in concert with other molecules. “Many proteins are just wiggly in solution, they don’t have a fixed structure,” says AlphaFold lead researcher John Jumper. Some of the regions that AlphaFold predicted with low confidence match up with those that biologists suspect are disordered, says Pushmeet Kohli, head of AI for science at DeepMind.Determining how individual proteins interact with other cellular players is one of the greatest challenges to the AlphaFold predictions, say researchers. For the CASP competition, most of its predictions were of independently folding units of a protein, called domains. But the human proteome, and those of other organisms, contains proteins with multiple domains that fold semi-independently. Human cells also contain molecules made of multiple chains of interacting proteins, such as receptors on cell membranes.Deluge of dataThe approximately 365,000 structure predictions deposited this week should swell to 130 million — nearly half of all known proteins — by the year’s end, says Sameer Velankar, a structural bioinformatician at EMBL-EBI. The database will be updated as new proteins are identified and predictions improved. “This is not a resource you expect to have access to,” says Tunyasuvunakool, and she is eager to see what scientists come up with.Researchers are already using AlphaFold and related tools to help make sense out of experimental data generated using X-ray crystallography and cryo-electron microscopy. Marcelo Sousa, a biochemist at the University of Colorado Boulder, used AlphaFold to make models from X-ray data of proteins that bacteria use to evade an antibiotic called colistin. The parts of the experimental model that differed from the AlphaFold prediction were typically regions that the software had assigned with low confidence, Sousa notes, a sign that AlphaFold is accurately predicting its limits.Still, biologists will want to continue benchmarking these predictions to experimental data to get a better handle on their reliability, says Venki Ramakrishnan, a structural biologist at the MRC Laboratory of Molecular Biology in Cambridge, UK. “We need to be able to trust these data,” adds Orengo.Jones is impressed with what the network has achieved. But he says that many of the models predicted by AlphaFold could have been generated with earlier software developed by academics. “For most proteins, those results are probably good enough for quite a lot of the things you want to do.” Scientists dead-set on obtaining the structure of any particular protein could probably succeed using experimental approaches.But the availability of so many protein structures is likely to mark a “paradigm shift” in biology, says Mohammed AlQuraishi, a computational biologist at Columbia University in New York City who works on protein-structure prediction. His field has spent so much time and energy on predicting accurate protein structures on this scale that it hasn’t yet worked out what do with such resources. “Everything we do today that relies on a protein sequence, we can now do with protein structure.”Orengo hopes that the database will help her to better understand the structural constraints of proteins. She has mapped a database of known proteins into about 5,000 ‘structural families’, but about half of the proteins in the database are excluded because there is nothing else like them for which a structure has been determined. AlphaFold’s predictions could help uncover new shapes, she says. “We’ll really see what folding space looks like.”Jones expects AlphaFold will lead to a lot of soul-searching among biologists about what to do with so many structures — and the ease of creating many more. “There will be conferences. Now we’ve got 130 million models, how does this change our view of biology? It may be it doesn’t change it,” he says. “I suspect it will.”
+  learner_created: true
+- name: COVID_and_mass_sport_events_early_studies_yield_limited_insights.txt
+  visible: true
+  text: |-
+    England fans at London's Wembley stadium during the EURO 2020 final on 11 July.Credit: Matteo Ciambelli/DeFodi Images via Getty
+
+
+    As the postponed 2020 Summer Olympics begin in Tokyo, one aspect will stand in stark contrast with other recent major sport events, such as the UEFA EURO 2020 football championship final on 11 July. While olympians will be performing without live audiences, the Euro final at London’s Wembley Stadium saw 60,000 fans chanting on the bleachers. Spectators at Wembley were consenting participants in an experiment by the UK government to track the spread of COVID-19, as part of the Events Research Programme, an initiative which also included certain concerts, summer festivals and other mass events. Some countries have started similar, though smaller-scale, studies. Earlier this month, the government unveiled the results of the first phase of the UK programme — involving events between April and May 2021, but not the later events including the Euro 2020 final. Although some useful information did come out, the test events so far have not yet provided conclusive data on the spread of SARS-CoV-2 at events. Researchers also flag that the government did not wait for more conclusive results from the later events to inform its policy and lifted most pandemic restrictions across England just this week.Theresa Marteau, a behavioural scientist at the University of Cambridge, UK, and chair of the science board, says that working at speed with event organizers meant that opportunities were missed. "Sometimes the tickets were being sold at the time when the [science] protocols were being finalised," she says. When the United Kingdom launched the Events Research Programme in February, the government said it would allow spectators who could provide proof of a recent negative COVID-19 test to attend gigs and mass sports events at limited capacity. Subsequent studies would yield crucial data on how to safely run these events and would guide policy decisions on reopening entertainment venues in ways that reduce transmission risks.But the low infection rates among the population when the first events kicked off, and poor participation in PCR testing among attendees before and after events, meant the collected data lacked the scale and scope to give answers, the authors of the report say.Case numbers for those who attended the nine events included in the first phase of the Events Research Programme between April and May 2021 were small. Just 28 of the more than 55,000 people who took part as spectators at events — including the World Snooker Championship at a Sheffield theatre, the Football Association cup final at Wembley Stadium and the BRIT Awards at the O2 Arena in London — tested positive for SARS-CoV-2. Of these, researchers identified 11 who might have been infectious at an event and a further 17 as potentially infected at or around the time of an event, according to the findings, published on 1 July.The report’s authors urge these figures to be interpreted with “extreme caution” because the virus was not circulating widely in the community at the time and only 15% of those required to return pre- and post-event PCR tests did so.John Edmunds, an epidemiologist at the London School of Hygiene & Tropical Medicine and a member of the Events Research Programme’s science board, adds that the highly infectious delta variant was not yet predominant in the United Kingdom. “We knew that we wouldn’t have enough cases to look at transmission,” says Edmunds. The researchers looked at proxies for potential transmission of the virus at the events. These included environmental factors for airborne transmission — such as carbon-dioxide levels, which reveals poor ventilation, and crowd density — and behavioural factors, such as compliance with rules on face coverings and social distancing.The results suggest that different locations at a venue have different risk factors for transmission. Outdoor spaces had generally fewer risk factors than did indoor ones, for example, and certain areas of outdoor venues, such as the toilets, corridors and food and drink stands, where people crowded together, posed higher risks.“Sitting in your seat at Wembley is likely low risk,” says Edmunds. It’s the pinch points at the venue and the things that happen around the event, such as using public transport or visiting the pub, that are likely to be higher risk, he says.For Marteau, these findings were worthwhile. The programme has been “extraordinary” for both the scale of the experiments and the speed with which they were set up. “There are limitations, but in the main it is better that it happened than not,” she says.Both Marteau and Edmunds suggest that the rate of PCR compliance could have been improved if incentives and better communication for event-goers were in place.The Netherlands has also invested in a research programme to help understand how to hold business, culture and sports events safely. The FieldLab Events programme promised to develop proof of a reliable and safe approach to opening up entertainment. But earlier this month, the Dutch government — which on 26 June had had lifted most COVID–19 restrictions, including on mass gatherings — reversed that decision after infection rates spiked 500%.Back in the United Kingdom, with the events in the second and third phases of the programme, including the Euro 2020 final, now completed but not yet analysed, Edmunds and colleagues are hoping that these data combined with a new approach to tracking case counts that does not rely on pre- and post-event tests will shed more light on the risks of transmission at large events.But the results will come too late to inform policy. Restrictions on the number of people who can gather indoors and mandates on social distancing were lifted in England — although not in other parts of the United Kingdom — on 19 July, leading to frustrations among some scientists involved in the research, who worry that people now think it is safe to attend large gatherings.
+  learner_created: true
+- name: How_the_Delta_variant_achieves_its_ultrafast_spread.txt
+  visible: true
+  text: |-
+    A queue at a hospital in Surabaya, Indonesia, that treats people with COVID-19. Indonesia has been hard hit by the Delta variant.Credit: Juni Kriswanto/AFP/Getty
+
+
+    Since first appearing in India in late 2020, the Delta variant of SARS-CoV-2 has become the predominant strain in much of the world. Researchers might now know why Delta has been so successful: people infected with it produce far more virus than do those infected with the original version of SARS-CoV-2, making it very easy to spread.According to current estimates, the Delta variant could be more than twice as transmissible as the original strain of SARS-CoV-2. To find out why, epidemiologist Jing Lu at the Guangdong Provincial Center for Disease Control and Prevention in Guangzhou, China, and his colleagues tracked 62 people who were quarantined after exposure to COVID-19 and who were some of the first people in mainland China to become infected with the Delta strain.The team tested study participants’ ‘viral load’ — a measure of the density of viral particles in the body — every day throughout the course of infection to see how it changed over time. Researchers then compared participants’ infection patterns with those of 63 people who contracted the original SARS-CoV-2 strain in 2020.In a preprint posted 12 July1, the researchers report that virus was first detectable in people with the Delta variant four days after exposure,compared with an average of six days among people with the original strain, suggesting that Delta replicates much faster. Individuals infected with Delta also had viral loads up to 1,260 times higher than those in people infected with the original strain.
+
+    Delta coronavirus variant: scientists brace for impact
+    The combination of a high number of viruses and a short incubation period makes sense as an explanation for Delta’s heightened transmissibility, says epidemiologist Benjamin Cowling at the University of Hong Kong. The sheer amount of virus in the respiratory tract means that superspreading events are likely to infect even more people, and that people might begin spreading the virus earlier after they become infected.And the short incubation makes contact tracing more difficult in countries such as China, which systematically tracks each infected person’s contacts and require them to quarantine. “Putting it all together, Delta’s really difficult to stop,” Cowling says.Genetics researcher Emma Hodcroft at the University of Bern in Switzerland agrees that the mechanism makes sense. She and Cowling both suspect that estimates of the exact difference in viral load between Delta and the original strain are likely to shift as more scientists study the virus in various populations.A number of other questions about the Delta variant remain unanswered. It’s still unclear, for instance, whether it is more likely to cause severe disease than the original strain, and how good it is at evading the immune system. Hodcroft expects some of this information will emerge as researchers look more closely at broader and more diverse populations of people infected with Delta and other variants. “This virus has surprised us,” she says.
+  learner_created: true
+feedback_link: https://hyperskill.org/projects/145/stages/785/implement#comment
+status: Solved
+feedback:
+  message: Well done! You've finished the project. Select a new project on <a href="https://hyperskill.org/projects">JetBrains
+    Academy</a> to continue learning.
+  time: Fri, 23 Jul 2021 12:13:22 UTC
+record: -1
